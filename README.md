@@ -22,6 +22,19 @@ The installation includes a python package installed via pip and 4 services inst
 3. mpv-calendar-controller.service: a web front end for controlling mpv
 4. nginx.service: http and rtmp server for receiving streams that can be viewed by mpv
 
+## Development
+
+The goal is for this package to follow the following flow:
+1. `pip install <git-url>`: install the package and entry point scripts
+2. The entry point script install-mpv-calendar-service then runs system level install commands that may require `sudo`
+
+However, editable install is supported for development of the python aspect: `pip install -e .`. For development convenience, a Makefile is provided that automates creating a venv, performing the editable install, and running autoformatting and linting. See `make help` for details.
+
+To build, install, then run formatters and linters, run
+```
+make format && make lint
+```
+
 # Roadmap and todos
 - [ ] when a link can’t be directly read by youtube-dl/mpv, curl/wget/aria2c/scraper should be employed to download the content
 - [ ] background stream that always loops instead of using a default video for looping
