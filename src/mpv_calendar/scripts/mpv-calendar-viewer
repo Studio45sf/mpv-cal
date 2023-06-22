@@ -1,0 +1,173 @@
+#!/usr/bin/env bash
+
+# Run mpv in IPC mode with a blank image and await commands. Meant to run as a
+# systemd service.
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -euxo pipefail
+
+config="${XDG_CONFIG_HOME-$HOME/.config}"
+
+PREFIX="${PREFIX-$HOME/.local}"
+PATH=$PREFIX/bin:~/.cargo/bin:~/go/bin:$PATH
+export PATH
+
+DISPLAY="${DISPLAY-:0}"
+export DISPLAY
+
+# mpv's IPC socket path
+mpv_socket="$(mpv-calendar-constant mpv_socket)"
+
+mpv_scripts_dir="$config/mpv/scripts"
+
+mpv_track_change_hook="$mpv_scripts_dir/track_change.lua"
+
+default_image_duration=3153600000  # forever
+
+width=1920
+height=1080
+x_offset=0
+y_offset=0
+
+max_stream_framerate=30
+max_stream_height="$height"
+
+default_geometry="$width"'x'"$height"'+'"$x_offset"'+'"$y_offset"
+
+if ! echo "${MPV_CALENDAR_GEOMETRY-}" | grep -q -P '\d+x\d+\+\d+\+\d+'
+then
+    MPV_CALENDAR_GEOMETRY="$default_geometry"
+fi
+
+default_image="$(mpv-calendar-constant default_image)"
+initial_media="$default_image"
+
+# A file to store currently playing video
+#playing_file="$(mpv-calendar-constant last_playing_file)"
+
+_empty_image () {
+    if ! test -f "$initial_media"
+    then
+        mkdir -p "$(dirname "$initial_media")"
+        convert -size "$width"x"$height" xc:black "$initial_media"
+    fi
+}
+
+_register_mpv_track_change_hook() {
+    # Create the scripts directory if it doesn't exist
+    mkdir -p "$mpv_scripts_dir"
+
+    # Write the script content to the file
+    cat > "$mpv_track_change_hook" <<EOL
+local should_loop = false
+
+function on_playback_start()
+    local path = mp.get_property("path")
+    local filename = mp.get_property("filename/no-ext")
+
+    if filename then
+        -- Use the 'file' command to get the file type
+        local file_type_handle = io.popen('file -b --mime-type "' .. path .. '"')
+        local file_type = file_type_handle:read("*a")
+        file_type_handle:close()
+
+        -- Check if filename matches the specific pattern for looping
+        if filename == "default-display" then
+            -- Enable looping for a single file
+            mp.set_property("loop-file", "inf")
+            should_loop = true
+        elseif should_loop then
+            -- Disable looping for a single file
+            mp.set_property("loop-file", "no")
+            should_loop = false
+        end
+
+        -- Check if the file is an image using 'file' command result
+        if string.match(file_type, "image/") then
+            -- Pause if it's an image
+            mp.set_property("pause", "yes")
+        else
+            -- Otherwise, ensure the video plays
+            mp.set_property("pause", "no")
+        end
+    else
+        mp.set_property("pause", "no")
+    end
+end
+
+mp.register_event("file-loaded", on_playback_start)
+EOL
+
+    chmod +x "$mpv_track_change_hook"
+
+    echo "MPV track change hook script created at: $mpv_track_change_hook"
+}
+
+# Ensure that only one instance of the script is running at a time
+exec 200> "/var/lock/$(basename "$0")"
+if ! flock -n 200
+then
+    echo 'Instance already running.'
+    exit
+fi
+
+# kill any other instances of mpv
+# shellcheck disable=2009
+ps aux | grep -v grep | grep "$mpv_socket" | grep -v -w $$ | grep -w mpv | awk '{print $2}' | xargs kill -9 || :
+
+_register_mpv_track_change_hook  # write a hook that lets us know when the track changes
+
+_empty_image  # write an empty image so we have something to display as a default
+
+# Resume the last played video if the script was restarted and the event has not ended
+# if test -f "$playing_file"
+# then
+#     content=$(tail -1 "$playing_file")
+#     last_played_title="${content%%|*}"
+#     last_played_end="${content#*|}"
+#
+#     if [ "$(date +%s)" -lt "$last_played_end" ]
+#     then
+#         initial_media="$last_played_title"
+#     fi
+# fi
+
+sleep 0.1  # makes sure the watch loop is running before mpv starts
+
+# shellcheck disable=2009
+if ps aux | grep -v grep | grep -w xpra | grep -w -q "$DISPLAY"
+then
+    video_output=''
+elif command -v glxinfo && glxinfo | grep -i "direct rendering: Yes"
+then
+    video_output='--vo=gpu'
+else
+    video_output='--vo=opengl'
+fi
+
+# launch mpv with an open socket so it can talk to the playlist updater
+mpv \
+    --ytdl-format='bestvideo[height<=?'"$max_stream_height"'][fps<=?'"$max_stream_framerate"'][vcodec!=?vp9]+bestaudio/best' \
+    --no-config \
+    --mute=yes \
+    --keepaspect \
+    --fullscreen \
+    --image-display-duration="$default_image_duration" \
+    --no-resume-playback \
+    --idle \
+    --input-ipc-server="$mpv_socket" \
+    --no-cache \
+    --untimed \
+    --profile=low-latency \
+    --no-demuxer-thread \
+    --video-sync=audio \
+    --vd-lavc-threads=1 \
+    $video_output \
+    --force-seekable=yes \
+    --hr-seek=yes \
+    --geometry="$MPV_CALENDAR_GEOMETRY" \
+    --script="$mpv_track_change_hook" \
+    "$initial_media"

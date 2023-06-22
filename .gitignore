@@ -1,0 +1,10 @@
+*__pycache__*
+*mypy_cache*
+*.log
+**/target/
+*.rs.bk
+**/Cargo.lock
+*.jpg
+**/venv
+**/.venv
+**/node_modules

@@ -1,0 +1,56 @@
+#!/usr/bin/env bash
+
+# Install the mpv-calendar package and services.
+
+set -euxo pipefail
+
+PREFIX="${PREFIX-$HOME/.local}"
+PATH=$PREFIX/bin:$PATH
+export PATH
+
+if test "${MPV_CALENDAR_NO_PIP-0}" -eq 0
+then
+    # TODO: un-hardcode url and params
+    git_url=https://github.com/Studio45sf/mpv-cal.git
+    package_name=mpv_calendar
+    branch=master
+
+    commit="$(git ls-remote "$git_url" "refs/heads/$branch" | awk '{print $1}')"
+
+    direct_urls="$(mktemp)"
+    find "$PREFIX/lib" -type f -wholename '*python*/site-packages/'"$package_name"'-*/direct_url.json' -print0 > "$direct_urls"
+
+    # only install if it isn't already installed
+    if ! grep -q "$commit" "$direct_urls"
+    then
+        package_url="git+$git_url@$commit"
+        pip install -U --user --break-system-packages pip
+        pip uninstall -y --break-system-packages $package_name || :
+        pip_log="$(mktemp)"
+        if ! pip install --user --break-system-packages -U "$package_url" 2>&1 | tee "$pip_log"
+        then
+            if grep -q 'Could not resolve host' "$pip_log"
+            then
+                echo 'Waiting for network...'
+                sleep 5
+                pip install --user --break-system-packages -U "$package_url"
+                rm -f "$pip_log"
+            fi
+        fi
+    fi
+fi
+
+MPV_CALENDAR_GEOMETRY="${MPV_CALENDAR_GEOMETRY-1920x1080x0x0}"
+MPV_CALENDAR_UPTIME="${MPV_CALENDAR_UPTIME-180}"
+MPV_CALENDAR_DISPLAY="${MPV_CALENDAR_DISPLAY-:0}"
+MPV_CALENDAR_ROTATION="${MPV_CALENDAR_ROTATION-normal}"
+MPV_CALENDAR_PORT="${MPV_CALENDAR_PORT-8080}"
+MPV_CALENDAR_START_BURST_LIMIT="${MPV_CALENDAR_START_BURST_LIMIT-20}"
+
+install-mpv-calendar-service \
+    "$MPV_CALENDAR_UPTIME" \
+    "$MPV_CALENDAR_DISPLAY" \
+    "$MPV_CALENDAR_ROTATION" \
+    "$MPV_CALENDAR_PORT" \
+    "$MPV_CALENDAR_START_BURST_LIMIT" \
+    "$MPV_CALENDAR_GEOMETRY"

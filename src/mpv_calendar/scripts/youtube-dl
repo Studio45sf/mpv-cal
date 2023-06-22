@@ -1,0 +1,9 @@
+#!/usr/bin/env bash
+
+# yt-dlp has superseded youtube-dl, so pass through to yt-dlp for backwards compatibility.
+
+PREFIX="${PREFIX-$HOME/.local}"
+PATH=$PREFIX/bin:$PATH
+export PATH
+
+yt-dlp "$@"

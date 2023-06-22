@@ -1,0 +1,47 @@
+#!/usr/bin/env bash
+
+# Non-interactively update a Debian based system.
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -euxo pipefail
+
+log=$HOME/logs
+
+update_log="$log/auto-apt-upgrade.log"
+
+mkdir -p "$log"
+
+echo 'debconf debconf/frontend select Noninteractive' | sudo debconf-set-selections
+echo 'docker.io docker.io/restart boolean true' | sudo debconf-set-selections
+
+_apt () {
+    DEBIAN_FRONTEND=noninteractive \
+      sudo -E apt-get \
+      -o Dpkg::Options::=--force-confold \
+      -o Dpkg::Options::=--force-confdef \
+      -y \
+      --allow-downgrades \
+      --allow-remove-essential \
+      --allow-change-held-packages \
+      "$@"
+}
+
+_apt update
+
+_apt autoremove
+
+if ! _apt dist-upgrade 2>&1 | tee "$update_log"
+then
+    if grep -q 'dpkg was interrupted, you must manually run' "$update_log"
+    then
+        sudo -E dpkg --force-confold --force-confdef --configure -a
+        _apt dist-upgrade
+    else
+        exit 1
+    fi
+fi
+
+_apt autoremove

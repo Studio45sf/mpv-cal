@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+# Setup a display to be always on and optionally rotate. Meant to run at boot.
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -euxo pipefail
+
+uptime="${1?'ERROR: no uptime given (1)'}"
+display="${2?'ERROR: no target display value given (2)'}"
+rotation="${3?'ERROR: no rotation value given (3)'}"
+
+if test "$(awk -F. '{print $1}' /proc/uptime)" -ge "$uptime"
+then
+    exit
+fi
+
+DISPLAY="$display"
+export DISPLAY
+
+xrandr --auto
+
+xrandr | grep -w connected | awk '{print $1}' | xargs -I{} xrandr --output {} --rotate "$rotation"
+
+xset -display "$display" s off
+xset -display "$display" -dpms
+xset -display "$display" s noblank

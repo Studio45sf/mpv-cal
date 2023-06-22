@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <link rel="icon" href="/favicon.ico" type="image/x-icon">
+
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        h1 {
+            font-size: calc(16px + 3vw);
+            margin-bottom: 2vh;
+            text-align: center;
+        }
+        .grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr; /* Two equal columns */
+            gap: 20px;
+            width: 90%;
+            margin: auto;
+        }
+        .button {
+            font-size: calc(12px + 2vmax);
+            font-weight: bold;
+            background-color: #3498db;
+            color: #fff;
+            border: none;
+            cursor: pointer;
+            border-radius: 20px;
+            transition: background-color 0.3s ease;
+            padding: 50px;
+            text-align: center;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 80px;
+        }
+        .button:hover {
+            background-color: #2980b9;
+        }
+        form.add {
+            grid-column: span 2; /* The 'add' button will span both columns */
+            display: flex;
+            justify-content: space-between;
+        }
+        form.add input {
+            flex-grow: 1;
+            margin-right: 20px;
+            font-size: calc(12px + 1vmax); /* Auto scales with zoom */
+        }
+        ul {
+            grid-column: span 2;
+            list-style-type: none;
+            padding: 0;
+            overflow: auto;
+            max-height: 20vh;
+        }
+    </style>
+
+    <script>
+        function handleSubmitGet(event) {
+            event.preventDefault();
+
+            var actionUrl = event.target.action;
+            var button = event.target.querySelector('.button');
+            var messageBox = document.querySelector('.message');
+
+            button.style.backgroundColor = "#f1c40f";
+
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', actionUrl, true);
+
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState == 4) {
+                    if (xhr.status >= 200 && xhr.status < 400) {
+                        button.style.backgroundColor = "#27ae60";
+                        messageBox.style.color = "#27ae60";
+                        messageBox.innerText = "Success: " + actionUrl;
+                    } else {
+                        button.style.backgroundColor = "#c0392b";
+                        messageBox.style.color = "#c0392b";
+                        messageBox.innerText = "Error: " + actionUrl;
+                    }
+                    setTimeout(function() {
+                        button.style.backgroundColor = "#3498db";
+                        messageBox.style.color = "";
+                        messageBox.innerText = "";
+                    }, 1000);
+                }
+            };
+            xhr.send();
+        }
+
+        function handleSubmitPost(event) {
+            event.preventDefault();
+
+            var actionUrl = event.target.action;
+            var button = event.target.querySelector('.button');
+            var messageBox = document.querySelector('.message');
+            var formData = new FormData(event.target);
+
+            button.style.backgroundColor = "#f1c40f";
+
+            var xhr = new XMLHttpRequest();
+            xhr.open('POST', actionUrl, true);
+
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState == 4) {
+                    if (xhr.status >= 200 && xhr.status < 400) {
+                        button.style.backgroundColor = "#27ae60";
+                        messageBox.style.color = "#27ae60";
+                        messageBox.innerText = "Success: " + actionUrl;
+
+                        // Clear the form input field after a successful request
+                        event.target.reset();
+                    } else {
+                        button.style.backgroundColor = "#c0392b";
+                        messageBox.style.color = "#c0392b";
+                        messageBox.innerText = "Error: " + actionUrl;
+                    }
+                    setTimeout(function() {
+                        button.style.backgroundColor = "#3498db";
+                        messageBox.style.color = "";
+                        messageBox.innerText = "";
+                    }, 1000);
+                }
+            };
+            xhr.send(formData);
+        }
+
+        window.onload = function() {
+            var getForms = document.querySelectorAll('form:not(.post)');
+            for (var i = 0; i < getForms.length; i++) {
+                getForms[i].addEventListener('submit', handleSubmitGet);
+            }
+
+            var postForms = document.querySelectorAll('form.post');
+            for (var i = 0; i < postForms.length; i++) {
+                postForms[i].addEventListener('submit', handleSubmitPost);
+            }
+
+            // setInterval(getPlaylist, 3000); // Fetch the playlist every 3 seconds
+        }
+
+        function getPlaylist() {
+            var xhr = new XMLHttpRequest();
+            xhr.open('GET', '/playlist', true); // Change '/playlist' to your endpoint
+
+            xhr.onreadystatechange = function() {
+                if (xhr.readyState == 4 && xhr.status >= 200 && xhr.status < 400) {
+                    var playlist = JSON.parse(xhr.responseText);
+                    updatePlaylist(playlist);
+                }
+            };
+            xhr.send();
+        }
+
+        function updatePlaylist(playlist) {
+            var playlistElement = document.querySelector('#playlist');
+            playlistElement.innerHTML = '';
+            for (var i = 0; i < playlist.length; i++) {
+                var li = document.createElement('li');
+                li.textContent = playlist[i];
+                playlistElement.appendChild(li);
+            }
+        }
+    </script>
+
+</head>
+
+<body>
+    <h1>MPV Service Control</h1>
+
+    <div class="message"></div>
+
+    <div class="grid">
+        <form action="/stop">
+            <button type="submit" class="button">Stop</button>
+        </form>
+        <form action="/restart">
+            <button type="submit" class="button">Restart</button>
+        </form>
+
+        <form action="/stop-live-stream">
+            <button type="submit" class="button">Stop Live Stream</button>
+        </form>
+        <form action="/restart-live-stream">
+            <button type="submit" class="button">Restart Live Stream</button>
+        </form>
+
+        <form action="/stop-viewer">
+            <button type="submit" class="button">Stop Viewer</button>
+        </form>
+        <form action="/restart-viewer">
+            <button type="submit" class="button">Restart Viewer</button>
+        </form>
+
+        <form action="/stop-watcher">
+            <button type="submit" class="button">Stop Calendar Watcher</button>
+        </form>
+        <form action="/restart-watcher">
+            <button type="submit" class="button">Restart Calendar Watcher</button>
+        </form>
+
+        <form action="/reset">
+            <button type="submit" class="button">Reset</button>
+        </form>
+        <form action="/toggle-play">
+            <button type="submit" class="button">Toggle</button>
+        </form>
+
+        <form action="/next">
+            <button type="submit" class="button">Next</button>
+        </form>
+        <form action="/previous">
+            <button type="submit" class="button">Previous</button>
+        </form>
+
+        <form action="/add" class="add post">
+            <input type="text" name="item" placeholder="Add URL or file path">
+            <button type="submit" class="button">Add</button>
+        </form>
+
+        <ul id="playlist">
+            <!-- The currently playing items will be inserted here -->
+        </ul>
+    </div>
+
+</body>
+</html>

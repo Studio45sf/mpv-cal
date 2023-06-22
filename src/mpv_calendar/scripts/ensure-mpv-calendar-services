@@ -1,0 +1,60 @@
+#!/usr/bin/env bash
+
+# Start or restart all mpv-calendar services. Meant to run at boot or in a cronjob.
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -euxo pipefail
+
+uptime="${1?'ERROR: no uptime given (1)'}"
+
+if [ "$(awk -F. '{print $1}' /proc/uptime)" -ge "$uptime" ]
+then
+    exit
+fi
+
+_systemctl () {
+    local user
+    user="${1?'ERROR: 1 or 0 for user or system (1)'}"
+
+    if test "$user" -eq 1
+    then
+        systemctl --user "${@:2}"
+    else
+        sudo systemctl "${@:2}"
+    fi
+}
+
+_restart () {
+    local service
+    service="${1?'ERROR: no service given (1)'}"
+    user="${2?'ERROR: 1 or 0 for user or system (2)'}"
+
+    if ! _systemctl "$user" is-enabled "$service.service"
+    then
+        _systemctl "$user" enable "$service.service"
+    fi
+
+    if ! _systemctl "$user" is-active "$service.service"
+    then
+        _systemctl "$user" restart "$service.service"
+    fi
+}
+
+_restart nginx 0
+sleep 5
+
+viewer_service_name="$(mpv-calendar-constant viewer_service)"
+controller_service_name="$(mpv-calendar-constant controller_service)"
+watcher_service_name="$(mpv-calendar-constant watcher_service)"
+
+_restart "$viewer_service_name" 1
+sleep 5
+
+_restart "$controller_service_name" 1
+sleep 5
+
+_restart "$watcher_service_name" 1
+sleep 5

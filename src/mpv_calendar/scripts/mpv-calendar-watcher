@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+
+# Watch a list of calendars for events that contain media and queue the media
+# in mpv over IPC. Meant to run as a systemd service.
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -euxo pipefail
+
+PREFIX="${PREFIX-$HOME/.local}"
+PATH=$PREFIX/bin:~/.cargo/bin:~/go/bin:$PATH
+export PATH
+
+config="${XDG_CONFIG_HOME-$HOME/.config}"
+
+# URLs to pass to the calendar_events command
+calendar_urls="$*"
+
+default_image="$(mpv-calendar-constant default_image)"
+no_default_image_fallback="$(mpv-calendar-constant no_default_image_fallback)"
+
+mpv_calendars="$config/mpv/calendars"
+
+read_calendars () {
+    if test -f "$mpv_calendars"
+    then
+        if echo "$calendar_urls" | grep -q .
+        then
+            calendar_urls="$calendar_urls"' '"$(xargs < "$mpv_calendars")"
+        else
+            calendar_urls="$(xargs < "$mpv_calendars")"
+        fi
+    fi
+    calendar_urls="$(echo "$calendar_urls" | xargs -n 1 | sort -u | xargs)"
+}
+
+# File to store the upcoming events
+events_file="$(mktemp)"
+
+trap 'rm -f '"$events_file" EXIT HUP INT TERM
+
+# Start and stop unix time
+start_time=$(date +%s) # current unix time
+end_time=$((start_time + 60 * 60 * 24)) # 24 hours from now
+
+# mpv's IPC socket path
+mpv_socket="$(mpv-calendar-constant mpv_socket)"
+
+# A file to store currently playing video
+playing_file="$(mpv-calendar-constant last_playing_file)"
+
+mkdir -p "$(dirname "$playing_file")"
+
+_socat () {
+    local output
+    output="$(mktemp)"
+    # shellcheck disable=2094
+    cat | socat - "$mpv_socket" > >(tee "$output") 2>>"$output"
+    if grep -q 'error running command' "$output" || grep -q 'Invalid value' "$output" || grep -q 'could not be parsed' "$output"
+    then
+        echo 'ERROR: socat error'
+        rm -f "$output"
+        exit 1
+    else
+        rm -f "$output"
+    fi
+}
+
+_jq () {
+    local output
+    output="$(mktemp)"
+    # shellcheck disable=2094
+    if ! cat | jq -r -e "$@" > >(tee "$output") 2>>"$output"
+    then
+        echo 'ERROR: jq error from "'"$*"'"'
+        rm -f "$output"
+        exit 1
+    else
+        rm -f "$output"
+    fi
+}
+
+_is_playing () {
+    local title
+    local currently_playing
+    title="${1?'ERROR: no title (1)'}"
+    currently_playing=$(echo '{ "command": ["get_property", "playlist"] }' | _socat | _jq '.data | map(select(.current == true)) | .[0].filename' || echo '')
+    echo "$currently_playing" | grep -q "$title"
+
+}
+
+# mimic the actual call to mpv
+_mpv () {
+    mpv \
+        --no-config \
+        --mute=yes \
+        --keepaspect \
+        --fullscreen \
+        --no-resume-playback \
+        --no-cache \
+        --untimed \
+        --profile=low-latency \
+        --no-demuxer-thread \
+        --video-sync=audio \
+        --vd-lavc-threads=1 \
+        --force-seekable=yes \
+        --hr-seek=yes \
+        "$@"
+}
+
+_rtmp_stream_is_live () {
+    local stream_url
+    stream_url="${1?'ERROR: no stream url given (1)'}"
+    ffmpeg -i "$stream_url" -t 1 -f null -
+}
+
+_content_is_valid () {
+    local content
+    content="${1?'ERROR: no stream url given (1)'}"
+    if echo "$content" | grep -q 'rtmp://'
+    then
+        _rtmp_stream_is_live "$content"
+    else
+        _mpv --end=0.1 --frames=0 "$content"
+    fi
+}
+
+_watch_for_calendar_events () {
+    local search_window
+    local poll_delay
+
+    search_window="${1?'ERROR: no time window (1)'}"
+    poll_delay="${2?'ERROR: no pool delay given (2)'}"
+
+    while true
+    do
+        read_calendars
+
+        # get events in the next minute
+        now=$(date +%s)
+        start_time=$((now - search_window / 2))
+        end_time=$((start_time + search_window))
+
+        # Call the calendar_events command and save the output to a file
+        # shellcheck disable=2086
+        calendar-events-between "$start_time" "$end_time" $calendar_urls > "$events_file"
+
+        if ! grep -v '\[\]' "$events_file" | grep -q .
+        then
+            echo 'No events found.'
+            sleep "$poll_delay"
+            continue
+        fi
+
+        echo 'Found events:'
+        cat "$events_file"
+
+        # Update the playlist
+        jq -c '.[]' "$events_file" | while read -r event
+        do
+            title=$(echo "$event" | jq -r .name)
+            end=$(echo "$event" | jq -r .end)
+
+            # re-reference to HOME for convenience
+            if ! test -f "$title"
+            then
+                if test -f "$HOME/$title"
+                then
+                    title="$HOME/$title"
+                elif echo "$title" | grep -q -P '^/.+' && test -f "$HOME$title"
+                then
+                    title="$HOME$title"
+                fi
+            fi
+
+            if _is_playing "$title"
+            then
+                sleep 30
+                break
+            fi
+
+            # trick to get a non-zero return code if the media can't be played
+            if echo "$title" | grep -q ':' || test -f "$title"
+            then
+                if test "$no_default_image_fallback" -eq 0
+                then
+                    echo -e '{ "command": ["loadfile", "'"$title"'", "append-play"] }'`
+                    `'\n{ "command": ["loadfile", "'"$default_image"'", "append-play"] }'`
+                    `'\n{ "command": ["playlist-next", "force"] }' \
+                        | _socat
+                else
+                    echo -e '{ "command": ["loadfile", "'"$title"'", "append-play"] }'`
+                    `'\n{ "command": ["playlist-next", "force"] }' \
+                        | _socat
+                fi
+
+                # Store the title and end timestamp of the currently playing video
+                echo "$title|$end" > "$playing_file"
+                break
+            else
+                echo 'WARNING: title '"$title"' is not playable media.'
+            fi
+        done
+
+        # wait 30 seconds
+        sleep "$poll_delay"
+    done
+}
+
+# Ensure that only one instance of the script is running at a time
+exec 200> "/var/lock/$(basename "$0")"
+if ! flock -n 200
+then
+    echo 'Instance already running.'
+    exit
+fi
+
+# kill any other instances of this script
+# shellcheck disable=2009
+ps aux | grep -v grep | grep -v vim | grep -v -w $$ | grep -w "$(basename "$0")" | awk '{print $2}' | xargs kill -9 || :
+
+_watch_for_calendar_events 90 4

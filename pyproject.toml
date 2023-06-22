@@ -1,0 +1,25 @@
+[build-system]
+requires = [ "cffi", "maturin>=1.0", "pip", "setuptools", "wheel",]
+build-backend = "setuptools.build_meta"
+
+[tool.black]
+line-length = 100
+include = "\\.pyi?$"
+
+[tool.isort]
+profile = "black"
+line_length = 100
+
+[tool.pyright]
+include = [ "src", "tests",]
+
+[tool.vulture]
+sort_by_size = true
+exclude = [ ".git/*", ".mypy_cache/*", ".pytest_cache/*", ".venv/*", "/venv/*", "__pycache__/*", "_version.py", "build/*", "dist/*",]
+ignore_decorators = [ "@cli*", "@validator*", "@root_validator*",]
+ignore_names = []
+paths = [ "src", "tests", ".vulture-ignore",]
+
+[tool.bandit]
+exclude_dirs = [ "tests",]
+skips = [ "B403", "B404", "B603",]

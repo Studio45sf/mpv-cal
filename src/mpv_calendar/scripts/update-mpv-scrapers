@@ -1,0 +1,35 @@
+#!/usr/bin/env bash
+
+# MPV can leverage web scrapers to stream content from popular websites
+# seamlessly. However, scrapers are a game of whack-a-mole, so they are always
+# being updated. This script updates the scrapers to the latest versions
+# continuously when put in a cronjob.
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -euxo pipefail
+
+config="${XDG_CONFIG_HOME-$HOME/.config}"
+
+PREFIX="${PREFIX-$HOME/.local}"
+PATH=$PREFIX/bin:$PATH
+export PATH
+
+pip install --break-system-packages --user -U pip
+
+pip install --break-system-packages --user --force-reinstall https://github.com/yt-dlp/yt-dlp/archive/master.zip
+
+mkdir -p "$config/mpv/scripts"
+
+mkdir -p "$config/mpv/repos"
+
+rm -rf "$config/mpv/repos/mpv_sponsorblock"
+git clone https://github.com/po5/mpv_sponsorblock "$config/mpv/repos/mpv_sponsorblock"
+
+cd "$config/mpv/scripts" || exit 1
+
+rm -rf sponsorblock.lua sponsorblock_shared
+ln -sf ../repos/mpv_sponsorblock/sponsorblock.lua sponsorblock.lua
+ln -sf ../repos/mpv_sponsorblock/sponsorblock_shared sponsorblock_shared

@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+
+# Run a command in tmux and manage the tmux session and the command. If either
+# crash, restart both continuously.
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -euxo pipefail
+
+PREFIX="${PREFIX-$HOME/.local}"
+PATH=$PREFIX/bin:$HOME/.cargo/bin:$HOME/go/bin:$PATH
+export PATH
+
+poll_delay="${1?'ERROR: no poll delay given (1)'}"
+session_name="${2?'ERROR: no session name given (2)'}"
+script_path="${3?'ERROR: no script path given (3)'}"
+args="${*:4}"
+
+# shellcheck disable=2009
+if ! ps aux | grep tmux | grep -q server
+then
+    tmux start-server
+fi
+
+# Function to check if the script process is running
+is_script_running () {
+    pgrep -f "$script_path"
+}
+
+# Function to check if the session is already running
+is_session_running () {
+    tmux has-session -t "$session_name"
+}
+
+# Start the session and run the script
+start_session () {
+    tmux new-session -d -s "$session_name" "$script_path" "${args[@]}"
+}
+
+stop_session () {
+    if is_session_running
+    then
+        tmux kill-session -t "$session_name"
+    fi
+}
+
+# Check if the script is running, start the session if not
+if ! is_script_running
+then
+    start_session
+fi
+
+# Check if the script process is running and restart the session if not
+while true
+do
+    if ! is_script_running
+    then
+        echo "$(date): Script $script_path has failed. Restarting session..."
+        stop_session
+        start_session
+    fi
+
+    if ! is_session_running
+    then
+        echo "$(date): Session $session_name has died. Restarting..."
+
+        # make sure the script is really dead
+        # shellcheck disable=2009
+        ps aux | grep "$script_path" | grep -v -w tmux | grep -v grep | grep -v -w "$(basename "$0")" | grep -v -w $$ | awk '{print $2}' | xargs kill -9 || :
+
+        start_session
+    fi
+
+    tmux capture-pane -t "$session_name" -p || :
+
+    sleep "$poll_delay"
+done

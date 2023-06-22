@@ -1,0 +1,251 @@
+#!/usr/bin/env bash
+
+# Setup a Debian system with dependencies needed for the mpv-calendar service
+# and a live streaming server.
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -euxo pipefail
+
+PREFIX="${PREFIX-$HOME/.local}"
+
+PATH=$PREFIX/bin:$PATH
+export PATH
+
+uptime="${1?'ERROR: no uptime given (1)'}"
+display="${2?'ERROR: no target display value given (2)'}"
+rotation="${3?'ERROR: no rotation value given (3)'}"
+port="${4?'ERROR: no port given (4)'}"
+start_limit_burst="${5?'ERROR: no start burst limit set (5)'}"
+geometry="${6?'ERROR: no mpv geometry given (6)'}"
+
+updated_crontab=$(mktemp)
+current_crontab=$(mktemp)
+mysudoers_tmp=$(mktemp)
+
+trap 'rm -f '"$updated_crontab"' '"$current_crontab"' '"$mysudoers_tmp" EXIT
+
+mysudoers_etc=/etc/sudoers.d/mysudoers
+if sudo grep -q -r -w "$(whoami)" /etc/sudoers.d
+then
+    echo "$(whoami) is already visudo."
+else
+    new_entry="$(whoami)"' ALL=(ALL) NOPASSWD: ALL'
+    echo "$new_entry" > "$mysudoers_tmp"
+
+    visudo -c -q -f "$mysudoers_tmp"
+    sudo visudo -c -q -f "$mysudoers_tmp"
+    sudo chmod 600 "$mysudoers_tmp"
+    sudo cp "$mysudoers_tmp" "$mysudoers_etc"
+fi
+
+echo 'debconf debconf/frontend select Noninteractive' | sudo debconf-set-selections
+echo 'docker.io docker.io/restart boolean true' | sudo debconf-set-selections
+
+_apt () {
+    DEBIAN_FRONTEND=noninteractive \
+      sudo -E apt-get \
+      -o Dpkg::Options::=--force-confold \
+      -o Dpkg::Options::=--force-confdef \
+      -y \
+      --allow-downgrades \
+      --allow-remove-essential \
+      --allow-change-held-packages \
+      "$@"
+}
+
+# Install system dependencies for the app
+_apt update -y
+_apt install \
+    ffmpeg \
+    git \
+    imagemagick \
+    jq \
+    libavcodec-extra \
+    libnginx-mod-rtmp \
+    mesa-utils \
+    mpv \
+    nginx \
+    nginx-extras \
+    socat \
+    tmux \
+    xdotool \
+    x11-utils \
+    ufw \
+    fail2ban \
+    libmpv1
+
+sudo ufw allow "$port"
+sudo ufw allow ssh
+
+# Check if en_US.UTF-8 locale is generated
+if ! locale -a | grep -i -q 'en_US.UTF-8' && ! locale -a | grep -i -q 'en_US.utf8'
+then
+    # If not, uncomment the line in /etc/locale.gen
+    sudo sed -i '/# en_US.UTF-8 UTF-8/s/^# //g' /etc/locale.gen
+    # Then generate the locale
+    sudo locale-gen
+
+    # Set system locale
+    sudo update-locale LC_ALL=en_US.UTF-8 LANG=en_US.UTF-8
+fi
+
+install-tmux-plugins
+
+# Comment out the line by adding a '#' symbol at the beginning
+if ! grep -q -P '^@lxpanel.*' /etc/xdg/lxsession/LXDE-pi/autostart
+then
+    sudo cp /etc/xdg/lxsession/LXDE-pi/autostart /etc/xdg/lxsession/LXDE-pi/autostart.backup
+    sudo sed -i 's/^@lxpanel --profile LXDE-pi/#@lxpanel --profile LXDE-pi/' /etc/xdg/lxsession/LXDE-pi/autostart
+fi
+
+# setup cronjobs
+mkdir -p ~/logs/crontab
+
+crontab -l || : > "$current_crontab"
+
+# List of cron jobs
+cron_jobs=(
+    '* * * * * init-always-on-display '"$uptime"' '"$display"' '"$rotation"' &> ~/logs/crontab/init-always-on-display'
+    '0 0 * * * update-mpv-scrapers &> ~/logs/crontab/update-mpv-scrapers'
+    '0 0 * * 0 auto-apt-upgrade &> ~/logs/crontab/auto-apt-upgrade'
+    '* * * * * ensure-mpv-calendar-services '"$uptime"' &> ~/logs/crontab/ensure-mpv-calendar-services'
+)
+
+if ! grep -q 'SHELL=' "$current_crontab" && ! grep -q 'MAILTO=' "$current_crontab"
+then
+    {
+        echo 'SHELL=/bin/bash'
+        echo 'MAILTO=""'
+        echo 'PATH='"$PREFIX"'/bin:~/.cargo/bin:~/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:/snap/bin'
+        echo ''
+    } > "$updated_crontab"
+    cat "$current_crontab" >> "$updated_crontab"
+else
+    cat "$current_crontab" > "$updated_crontab"
+fi
+
+# Add each cron job if it doesn't already exist
+for cron_job in "${cron_jobs[@]}"
+do
+    if ! echo "$current_crontab" | grep -q -w "$(echo "$cron_job" | cut -d' ' -f6)"
+    then
+        echo "$cron_job" >> "$updated_crontab"
+    fi
+done
+
+# Install new cron file
+crontab "$updated_crontab"
+
+viewer_service_name="$(mpv-calendar-constant viewer_service)"
+controller_service_name="$(mpv-calendar-constant controller_service)"
+watcher_service_name="$(mpv-calendar-constant watcher_service)"
+
+systemctl --user stop "$viewer_service_name"
+systemctl --user disable "$viewer_service_name"
+systemctl --user stop "$controller_service_name"
+systemctl --user disable "$controller_service_name"
+systemctl --user stop "$watcher_service_name"
+systemctl --user disable "$watcher_service_name"
+
+poll_delay=1  # seconds
+
+viewer_service_script="$(which "$viewer_service_name")"
+viewer_script="bash -c 'PATH=$PREFIX/bin:$PATH MPV_CALENDAR_GEOMETRY=$geometry DISPLAY=$display tmux-service $poll_delay $viewer_service_name $viewer_service_script'"
+watcher_script="bash -c 'PATH=$PREFIX/bin:$PATH $watcher_service_name'"
+controller_script="bash -c 'PATH=$PREFIX/bin:$PATH $controller_service_name $port'"
+
+service_path=${XDG_CONFIG_HOME-$HOME/.config}/systemd/user
+
+# Create the directory if it doesn't exist
+mkdir -p "$service_path"
+
+cat > "$service_path/$viewer_service_name.service" <<EOF
+[Unit]
+Description=$viewer_service_name
+After=network.target
+
+[Service]
+ExecStart=$viewer_script
+Restart=always
+StartLimitBurst=$start_limit_burst
+KillSignal=SIGKILL
+
+[Install]
+WantedBy=default.target
+EOF
+
+cat > "$service_path/$controller_service_name.service" <<EOF
+[Unit]
+Description=$controller_service_name
+After=network.target
+
+[Service]
+ExecStart=$controller_script
+Restart=always
+StartLimitBurst=$start_limit_burst
+KillSignal=SIGKILL
+
+[Install]
+WantedBy=default.target
+EOF
+
+cat > "$service_path/$watcher_service_name.service" <<EOF
+[Unit]
+Description=$watcher_service_name
+After=network.target
+
+[Service]
+ExecStart=$watcher_script
+Restart=always
+StartLimitBurst=$start_limit_burst
+KillSignal=SIGKILL
+
+[Install]
+WantedBy=default.target
+EOF
+
+_init_service () {
+    local service
+    service="${1?'ERROR: no service (1)'}"
+    systemctl --user daemon-reload
+    systemctl --user enable "$service"
+    systemctl --user start "$service"
+    systemctl --user status -l "$service" --no-pager
+    systemctl --user daemon-reload
+}
+
+_init_service "$viewer_service_name"
+_init_service "$watcher_service_name"
+_init_service "$controller_service_name"
+
+# setup nginx to handle rtmp
+if ! grep -q 'rtmp {' /etc/nginx/nginx.conf
+then
+    sudo tee -a /etc/nginx/nginx.conf << EOF
+    rtmp {
+        server {
+            listen 1935;
+            ping 30s;
+            chunk_size 8192;
+
+            application live {
+                live on;
+                record off;
+                hls on;
+                hls_path /tmp/hls;
+                hls_fragment 3;
+                hls_playlist_length 60;
+            }
+        }
+    }
+EOF
+fi
+
+sudo systemctl enable nginx.service --no-pager
+sudo systemctl start nginx.service --no-pager
+sudo systemctl status -l nginx.service --no-pager
+
+init-always-on-display 315576000000 "$display" "$rotation"
