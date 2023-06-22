@@ -4,7 +4,7 @@ mpv-calendar is a python package that installs an always-on digital display onto
 
 To install in one go, run this command:
 ```bash
-curl -sL 'https://github.com/Studio45sf/mpv-cal/-/raw/main/src/mpv_calendar/scripts/mpv-calendar-remote-installer' | bash -
+curl -sL 'https://raw.githubusercontent.com/Studio45sf/mpv-cal/main/src/mpv_calendar/scripts/mpv-calendar-remote-installer' | bash -
 ```
 
 Create a file at `~/.config/mpv/calendars` on the target machine with a list of the calendars to watch for events. Simply put a url or file path as the title of the event.
