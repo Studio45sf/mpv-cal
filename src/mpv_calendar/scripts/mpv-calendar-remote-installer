@@ -13,7 +13,7 @@ then
     # TODO: un-hardcode url and params
     git_url=https://github.com/Studio45sf/mpv-cal.git
     package_name=mpv_calendar
-    branch=master
+    branch="${MPV_CALENDAR_VERSION-main}"
 
     commit="$(git ls-remote "$git_url" "refs/heads/$branch" | awk '{print $1}')"
 
@@ -45,7 +45,7 @@ MPV_CALENDAR_UPTIME="${MPV_CALENDAR_UPTIME-180}"
 MPV_CALENDAR_DISPLAY="${MPV_CALENDAR_DISPLAY-:0}"
 MPV_CALENDAR_ROTATION="${MPV_CALENDAR_ROTATION-normal}"
 MPV_CALENDAR_PORT="${MPV_CALENDAR_PORT-8080}"
-MPV_CALENDAR_START_BURST_LIMIT="${MPV_CALENDAR_START_BURST_LIMIT-20}"
+MPV_CALENDAR_START_BURST_LIMIT="${MPV_CALENDAR_START_BURST_LIMIT-40}"
 
 install-mpv-calendar-service \
     "$MPV_CALENDAR_UPTIME" \

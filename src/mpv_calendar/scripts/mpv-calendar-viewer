@@ -115,8 +115,22 @@ then
 fi
 
 # kill any other instances of mpv
+
+to_kill="$(mktemp)"
+trap 'rm -f '"$to_kill" EXIT
+
+touch "$to_kill"
+
 # shellcheck disable=2009
-ps aux | grep -v grep | grep "$mpv_socket" | grep -v -w $$ | grep -w mpv | awk '{print $2}' | xargs kill -9 || :
+ps aux | grep -v grep | grep "$mpv_socket" | grep -v -w $$ | grep -w mpv | awk '{print $2}' > "$to_kill" || :
+
+if grep -q . "$to_kill"
+then
+    echo 'Killing '"$(cat "$to_kill")"
+
+    # shellcheck disable=2009
+    xargs kill -9 < "$to_kill" || :
+fi
 
 _register_mpv_track_change_hook  # write a hook that lets us know when the track changes
 

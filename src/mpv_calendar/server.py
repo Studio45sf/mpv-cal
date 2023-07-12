@@ -52,6 +52,7 @@ def _stop_and_disable(service: str, user: bool, kill_filter: str) -> int:
     print("Stopping...")
 
     result += _run(f"! {_service('is-active', service, user)} || {_service('stop', service, True)}")
+    result += _run("sleep 1")
     result += _run(
         f"! {_service('is-enabled', service, user)} || {_service('disable', service, True)}"
     )
@@ -69,14 +70,15 @@ def _restart_service(service: str, user: bool, kill_filter: str) -> int:
     """Stop, disable, enable, then start a service."""
     result = 0
     result += _stop_and_disable(service, user, kill_filter)
+    result += _run("sleep 1")
     result += _run(_service("enable", service, user))
+    result += _run("sleep 1")
     result += _run(_service("start", service, user))
     return result
 
 
 def _load_file_and_skip(item: str, last_playing_file: Path, default_image_fallback: bool) -> int:
     """Construct and send the "loadfile" command over the socket."""
-
     if default_image_fallback:
         loadfile_command = (
             f'echo \'{{ "command": ["loadfile", "{item}", "append-play"] }}\' '
@@ -84,7 +86,8 @@ def _load_file_and_skip(item: str, last_playing_file: Path, default_image_fallba
         )
     else:
         loadfile_command = (
-            f'echo \'{{ "command": ["loadfile", "{item}", "append-play"] }}\n{{ "command": ["loadfile", "{Constant.default_image}", "append-play"] }}\' '
+            f'echo \'{{ "command": ["loadfile", "{item}", "append-play"] }}'
+            f'\n{{ "command": ["loadfile", "{Constant.default_image}", "append-play"] }}\' '
             f"| socat - {Constant.mpv_socket}"
         )
 
@@ -270,7 +273,7 @@ async def add_playlist_item(request: Request) -> dict[str, str]:
     form_data = await request.form()
 
     item = cast(str, form_data["item"])
-    if '://' not in item and not Path(item).is_file():
+    if "://" not in item and not Path(item).is_file():
         if (Path.home() / item).is_file():
             item = str(Path.home() / item)
     elif item.startswith("/") and not Path(item).is_file():
@@ -292,16 +295,19 @@ async def add_playlist_item(request: Request) -> dict[str, str]:
 
 
 __all__ = [
+    "add_playlist_item",
     "favicon",
     "index",
+    "next_playlist_item",
+    "previous_playlist_item",
     "reset",
     "restart",
-    "stop",
-    "previous_playlist_item",
-    "next_playlist_item",
-    "toggle_play",
-    "restart_watcher",
-    "stop_watcher",
+    "restart_live_stream",
     "restart_viewer",
+    "restart_watcher",
+    "stop",
+    "stop_live_stream",
     "stop_viewer",
+    "stop_watcher",
+    "toggle_play",
 ]
