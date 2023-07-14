@@ -25,7 +25,11 @@ class Constant:
     last_playing_file = CACHE / ".mpv_playing"
     mpv_socket = "/tmp/mpvsocket"  # nosec
     port = 8080
-    no_default_image_fallback: bool = True
+
+    # debug flags
+    default_image_fallback_instant = False
+    default_image_fallback_calendar = False
+    default_image_fallback_reset = False
 
 
 def report() -> None:
@@ -38,4 +42,11 @@ def systemd_services() -> tuple[str, ...]:
     return (Constant.controller_service, Constant.viewer_service, Constant.watcher_service)
 
 
-__all__ = ["report", "systemd_services"]
+# NOTE: This is here to satisfy dead code checks that can't understand bash/cli
+# usage of python constructs
+def report_bash_settings() -> None:
+    """Report settings known to be used only by the bash code and not the python code."""
+    print(Constant.default_image_fallback_calendar)
+
+
+__all__ = ["report", "report_bash_settings", "systemd_services"]
