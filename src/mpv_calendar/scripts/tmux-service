@@ -34,7 +34,9 @@ fi
 # Function to check if the script process is running
 is_script_running () {
     pgrep -f "$script_path"
+}
 
+is_window_open () {
     local current_timestamp
     local file_timestamp
     local time_difference
@@ -53,9 +55,9 @@ is_script_running () {
     time_difference=$((current_timestamp - file_timestamp))
 
     # Compare the time difference with the threshold (10 seconds)
-    if test "$time_difference" -ge "$MPV_CALENDAR_VIEWER_TIMEOUT"
+    if echo "$window_pattern" | grep -q .
     then
-        if echo "$window_pattern" | grep -q .
+        if test "$time_difference" -ge "$MPV_CALENDAR_VIEWER_TIMEOUT"
         then
             if ! DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
             then
@@ -63,7 +65,15 @@ is_script_running () {
                 if ! DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
                 then
                     sleep 2
-                    DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
+                    if ! DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
+                    then
+                        sleep 4
+                        if ! DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
+                        then
+                            sleep 8
+                            DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
+                        fi
+                    fi
                 fi
             fi
         fi
