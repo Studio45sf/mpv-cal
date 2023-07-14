@@ -112,6 +112,7 @@ cron_jobs=(
     '0 0 * * * update-mpv-scrapers &> ~/logs/crontab/update-mpv-scrapers'
     '0 0 * * 0 auto-apt-upgrade &> ~/logs/crontab/auto-apt-upgrade'
     '* * * * * ensure-mpv-calendar-services '"$uptime"' &> ~/logs/crontab/ensure-mpv-calendar-services'
+    '* * * * * notify-ip-change '"$port"' &> ~/logs/crontab/notify-ip-change'
 )
 
 if ! grep -q 'SHELL=' "$current_crontab" && ! grep -q 'MAILTO=' "$current_crontab"
@@ -151,7 +152,7 @@ systemctl --user disable "$controller_service_name" || :
 systemctl --user stop "$watcher_service_name" || :
 systemctl --user disable "$watcher_service_name" || :
 
-poll_delay=1  # seconds
+poll_delay=2  # seconds
 
 viewer_service_script="$(which "$viewer_service_name")"
 viewer_script="bash -c 'PATH=$PREFIX/bin:$PATH MPV_CALENDAR_GEOMETRY=$geometry DISPLAY=$display tmux-service $poll_delay $viewer_service_name $viewer_service_script mpv'"

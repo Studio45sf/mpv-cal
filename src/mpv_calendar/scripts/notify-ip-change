@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -exuo pipefail
+
+PATH="$HOME/.local/bin:$HOME/.cargo/bin:$HOME/go/bin:$PATH"
+export PATH
+
+port=${1?'ERROR: no port given (1)'}
+
+# Set the path to your previous IP address file
+mkdir -p ~/.cache
+previous_ip_file=~/.cache/previous_ip.txt
+
+# Run the command to get the current IP address
+current_ip="$(ip addr | awk '/inet /{print $2}' | grep 192.168 | head -1 | cut -d'/' -f1)"
+
+# Check if the previous IP file exists
+if [ -f "$previous_ip_file" ]
+then
+    # Read the previous IP address from the file
+    previous_ip=$(cat "$previous_ip_file")
+
+    # Compare the previous and current IP addresses
+    if [ "$previous_ip" != "$current_ip" ]
+    then
+        # IP address has changed, update the file and send notification
+        echo "$current_ip" > "$previous_ip_file"
+        matrix_notify "http://$current_ip:$port"
+    fi
+else
+    # Previous IP file doesn't exist, create it and send the initial notification
+    echo "$current_ip" > "$previous_ip_file"
+    matrix_notify "http://$current_ip:$port"
+fi

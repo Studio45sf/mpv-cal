@@ -57,7 +57,15 @@ is_script_running () {
     then
         if echo "$window_pattern" | grep -q .
         then
-            DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
+            if ! DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
+            then
+                sleep 1
+                if ! DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
+                then
+                    sleep 2
+                    DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
+                fi
+            fi
         fi
     fi
 }

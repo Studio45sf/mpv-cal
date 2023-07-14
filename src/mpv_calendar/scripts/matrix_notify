@@ -1,0 +1,278 @@
+#!/usr/bin/env bash
+
+TERM="${TERM-'xterm'}"; export TERM
+gray="$(tput setaf 8 || echo "")"
+reset="$(tput sgr0 || echo "")"
+PS4="${gray-}"'+(${BASH_SOURCE[0]}:${LINENO}): ${FUNCNAME[0]:+${FUNCNAME[0]}(): }'"${reset-}"
+set -euxo pipefail
+
+config=$HOME/.config
+
+private=$config/private
+
+api_json=$private/api.json
+
+usage () {
+cat <<EOF
+    [echo <msg> | ]matrix_notify [OPTIONS] [<msg>]
+    --code           treat input text as code by quoting as such
+    --debug          turn on debug mode
+    --urgent         @ mention the receiver to elevate urgency
+    --bot <name>     name of bot to send as
+    --room-idx       bots each have a list of known rooms in the api.json, the index of the room to send to.
+    --room <name>    name of the room to send to
+    --api-json       alternative path to api-json, default is $api_json
+    --help|-h|-help  print this message
+EOF
+}
+
+# send with matrix
+
+urgent=0
+code=0
+bot='notifier'
+room_idx=0
+debug=0
+room_name=""
+dry_run=0
+returncode=0
+
+POSITIONAL=()
+while [[ $# -gt 0 ]]
+do
+    key="$1"
+
+    case $key in
+        --code)
+            code=1
+            shift
+            ;;
+        --dry-run)
+            dry_run=1
+            shift
+            ;;
+        --debug)
+            debug=1
+            shift
+            ;;
+        --urgent)
+            urgent=1
+            shift
+            ;;
+        --error)
+            returncode=1
+            shift
+            ;;
+        --bot)
+            bot="$2"
+            shift # past argument
+            shift # past argument
+            ;;
+        --room-idx)
+            room_idx="$2"
+            shift # past argument
+            shift # past argument
+            ;;
+        --room)
+            room_name="$2"
+            shift # past argument
+            shift # past argument
+            ;;
+        --api-json)
+            api_json="$2"
+            shift # past argument
+            shift # past argument
+            ;;
+        --help|-h|-help)
+            usage
+            exit
+            ;;
+        *)
+            POSITIONAL+=("$1") # save it in an array for later
+            shift # past argument
+            ;;
+    esac
+done
+
+# shellcheck disable=2086,2199
+if [ -v POSITIONAL ] && [[ ${POSITIONAL[@]+"${POSITIONAL[@]}"} ]]
+then
+    # shellcheck disable=2178
+    POSITIONAL="${POSITIONAL[*]}"
+    if echo "${POSITIONAL[*]}" | grep -q .
+    then
+        set -- "${POSITIONAL[*]}" # restore positional parameters
+    fi
+fi
+
+if [ "$debug" -eq 1 ]
+then
+    set -euxo pipefail
+fi
+
+if echo "${1-}" | grep -q .
+then
+    msg="${1?'ERROR: no message (1)'}"
+elif test ! -t 0; then
+    msg="$(cat)"
+else
+    echo 'ERROR: no input.'
+    exit 1
+fi
+
+if [ "$urgent" -eq 1 ]
+then
+    msg='@room '"$msg"
+fi
+
+if ! test -f "$api_json"
+then
+    # shellcheck disable=2016
+    echo 'ERROR: you must pass json with credentials at '"$api_json"' or via --api-json /path/to/json. You could pipe in-memory data in as a file descriptor as well <(echo "$json_data")'
+    echo 'The format is the following:'
+    echo '{
+  "matrix_bots": {
+    "<bot-name>": {
+      "url": "https://matrix.<domain.net>",
+      "username": "<bot-username>",
+      "password": "<bot-password>",
+      "room": "!<default-room-id>:<domain.net>"
+      "authorized_users": [
+        {
+          "user": "@<allowed-user0>:<domain.net>",
+          "username": "<allowed-user0>",
+          "room": "!<private-room-id0>:<domain.net>"
+        }
+      ]
+    }
+  }
+}'
+    exit 1
+fi
+
+matrix_login="$(jq -r '.matrix_bots.'"$bot" "$api_json")"
+
+username="$(echo "$matrix_login" | jq -r '.username')"
+password="$(echo "$matrix_login" | jq -r '.password')"
+url="$(echo "$matrix_login" | jq -r '.url')"
+rooms="$(echo "$matrix_login" | jq -r '.authorized_users')"
+
+msgtype=m.text
+
+if [ "$room_idx" -eq "$room_idx" ] &>/dev/null
+then
+    room="$(echo "$rooms" | jq -e -r '.['"$room_idx"'].room')"
+else
+    room="$(echo "$rooms" | jq -e -r '.[] | select(.username=="'"$room_idx"'").room')"
+fi
+
+if echo "$room_name" | grep -q .
+then
+    room="$(echo "$rooms" | jq -e -r '.[] | select(.username=="'"$room_name"'").room')"
+fi
+
+access_data="$(mktemp)"
+trap 'rm -f '"$access_data" EXIT
+
+_auth_post () {
+    local post_timeout
+    post_timeout="${1?'ERROR: no timeout given (1)'}"
+    timeout --foreground "$post_timeout" curl -XPOST \
+        -d '{"type":"m.login.password", "user":"'"$username"'", "password":"'"$password"'"}' \
+        "$url/_matrix/client/r0/login"
+}
+
+max_count=10
+max_delay=8
+delay=1
+count=1
+post_timeout="$((2 * delay + 4))"
+while ! _auth_post "$post_timeout" | tee "$access_data"
+do
+    if [ "$count" -gt "$max_count" ]
+    then
+        echo 'ERROR: could not contact server.'
+        exit 1
+    fi
+
+    sleep "$delay"
+    count="$((count + 1))"
+    delay="$((2 * delay))"
+    if [ "$delay" -gt "$max_delay" ]
+    then
+        delay="$max_delay"
+    fi
+    post_timeout="$((2 * delay + 4))"
+done
+
+access_token="$(jq -r '.access_token' "$access_data")"
+
+echo "$access_token"
+
+if [ "$code" -eq 1 ]
+then
+    msg="$(echo "$msg" | sed -E ':a;N;$!ba;s/\r{0,1}\n/\\n/g')"
+    formatted_body='<pre><code>'"$msg"'</code></pre>\n'
+    format='org.matrix.custom.html'
+
+    # shellcheck disable=2016
+    data='{
+      "msgtype": "'"$msgtype"'",
+      "body": "```\n'"$msg"'\n```",
+      "format": "'"$format"'",
+      "formatted_body": "'"$formatted_body"'"
+    }'
+else
+    msg="$(echo "$msg" | tr -d '"')"
+    # shellcheck disable=2016
+    data='{
+      "msgtype": "'"$msgtype"'",
+      "body": "'"$msg"'"
+    }'
+fi
+
+if [ "$dry_run" -eq 1 ]
+then
+    echo ''
+    echo 'Dry run. Command:'
+    # shellcheck disable=2016
+    echo '  curl -XPOST '`
+    `'-d "$data" '`
+    `"$url/_matrix/client/r0/rooms/$room/send/m.room.message?access_token=$access_token"
+else
+
+    _post () {
+        local post_timeout
+        post_timeout="${1?'ERROR: no timeout given (1)'}"
+        # --raw-input --slurp -> the entire input to jq is passed to the filter as a single long string.
+        # shellcheck disable=2016
+        timeout --foreground "$post_timeout" curl -XPOST \
+            -d "$data" \
+            "$url/_matrix/client/r0/rooms/$room/send/m.room.message?access_token=$access_token"
+    }
+
+    max_count=10
+    max_delay=8
+    delay=1
+    count=1
+    post_timeout="$((2 * delay + 4))"
+    while ! _post "$post_timeout"
+    do
+        if [ "$count" -gt "$max_count" ]
+        then
+            echo 'ERROR: could not contact server.'
+            exit 1
+        fi
+
+        sleep "$delay"
+        count="$((count + 1))"
+        delay="$((2 * delay))"
+        if [ "$delay" -gt "$max_delay" ]
+        then
+            delay="$max_delay"
+        fi
+        post_timeout="$((2 * delay + 4))"
+    done
+fi
+
+exit "$returncode"
