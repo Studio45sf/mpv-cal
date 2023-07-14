@@ -13,10 +13,17 @@ PREFIX="${PREFIX-$HOME/.local}"
 PATH=$PREFIX/bin:$HOME/.cargo/bin:$HOME/go/bin:$PATH
 export PATH
 
+MPV_CALENDAR_VIEWER_TIMEOUT=${MPV_CALENDAR_VIEWER_TIMEOUT-30}
+
 poll_delay="${1?'ERROR: no poll delay given (1)'}"
 session_name="${2?'ERROR: no session name given (2)'}"
 script_path="${3?'ERROR: no script path given (3)'}"
-args="${*:4}"
+window_pattern="${4?'ERROR: no window pattern given (4)'}"
+args="${*:5}"
+
+session_start_time="$(mktemp)"
+
+trap 'rm -f '"$session_start_time" EXIT
 
 # shellcheck disable=2009
 if ! ps aux | grep tmux | grep -q server
@@ -27,6 +34,32 @@ fi
 # Function to check if the script process is running
 is_script_running () {
     pgrep -f "$script_path"
+
+    local current_timestamp
+    local file_timestamp
+    local time_difference
+
+    # Current Unix timestamp
+    current_timestamp=$(date +%s)
+
+    if ! test -f "$session_start_time"
+    then
+        echo "$current_timestamp" > "$session_start_time"
+    fi
+
+    file_timestamp="$(cat "$session_start_time")"
+
+    # Calculate the time difference in seconds
+    time_difference=$((current_timestamp - file_timestamp))
+
+    # Compare the time difference with the threshold (10 seconds)
+    if test "$time_difference" -ge "$MPV_CALENDAR_VIEWER_TIMEOUT"
+    then
+        if echo "$window_pattern" | grep -q .
+        then
+            DISPLAY="${DISPLAY-:0}" xdotool search "$window_pattern" | grep -q .
+        fi
+    fi
 }
 
 # Function to check if the session is already running
@@ -37,6 +70,7 @@ is_session_running () {
 # Start the session and run the script
 start_session () {
     tmux new-session -d -s "$session_name" "$script_path" "${args[@]}"
+    date +%s > "$session_start_time"
 }
 
 stop_session () {

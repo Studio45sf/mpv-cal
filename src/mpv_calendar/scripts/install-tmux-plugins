@@ -63,7 +63,7 @@ set-option -g set-clipboard on
 # color
 set -ga terminal-overrides ",xterm-256color:Tc"
 set -g default-terminal "tmux-256color"
-set -g default-shell ~/bin/shell/zsh-tmux
+set -g default-shell /bin/bash
 
 # if run as "tmux attach", create a session if one does not already exist
 new-session -n \$HOST

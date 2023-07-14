@@ -26,6 +26,11 @@ def main() -> None:
     """Start the server."""
     port = int(sys.argv[1]) if len(sys.argv) > 1 else Constant.port
 
+    if is_running_from_venv():
+        print("Running from virtual environment.")
+    else:
+        print("Running from system installation.")
+
     uvicorn.run(
         app,
         host=IP_ADDRESS,

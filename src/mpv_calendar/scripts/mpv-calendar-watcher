@@ -38,8 +38,8 @@ read_calendars () {
 
 # File to store the upcoming events
 events_file="$(mktemp)"
-
-trap 'rm -f '"$events_file" EXIT HUP INT TERM
+to_kill="$(mktemp)"
+trap 'rm -f '"$events_file"' '"$to_kill" EXIT HUP INT TERM
 
 # Start and stop unix time
 start_time=$(date +%s) # current unix time
@@ -217,8 +217,15 @@ then
     exit
 fi
 
+touch "$to_kill"
+
 # kill any other instances of this script
 # shellcheck disable=2009
-ps aux | grep -v grep | grep -v vim | grep -v -w $$ | grep -w "$(basename "$0")" | awk '{print $2}' | xargs kill -9 || :
+ps aux | grep -v grep | grep -v vim | grep -v -w $$ | grep -w "$(basename "$0")" | awk '{print $2}' > "$to_kill" || :
+
+if grep -q . "$to_kill"
+then
+    xargs kill -9 < "$to_kill" || :
+fi
 
 _watch_for_calendar_events 90 4

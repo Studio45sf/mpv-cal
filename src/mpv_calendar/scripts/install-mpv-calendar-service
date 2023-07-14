@@ -143,17 +143,18 @@ viewer_service_name="$(mpv-calendar-constant viewer_service)"
 controller_service_name="$(mpv-calendar-constant controller_service)"
 watcher_service_name="$(mpv-calendar-constant watcher_service)"
 
-systemctl --user stop "$viewer_service_name"
-systemctl --user disable "$viewer_service_name"
-systemctl --user stop "$controller_service_name"
-systemctl --user disable "$controller_service_name"
-systemctl --user stop "$watcher_service_name"
-systemctl --user disable "$watcher_service_name"
+# TODO: check if the service exists first instead of unilaterally passing
+systemctl --user stop "$viewer_service_name" || :
+systemctl --user disable "$viewer_service_name" || :
+systemctl --user stop "$controller_service_name" || :
+systemctl --user disable "$controller_service_name" || :
+systemctl --user stop "$watcher_service_name" || :
+systemctl --user disable "$watcher_service_name" || :
 
 poll_delay=1  # seconds
 
 viewer_service_script="$(which "$viewer_service_name")"
-viewer_script="bash -c 'PATH=$PREFIX/bin:$PATH MPV_CALENDAR_GEOMETRY=$geometry DISPLAY=$display tmux-service $poll_delay $viewer_service_name $viewer_service_script'"
+viewer_script="bash -c 'PATH=$PREFIX/bin:$PATH MPV_CALENDAR_GEOMETRY=$geometry DISPLAY=$display tmux-service $poll_delay $viewer_service_name $viewer_service_script mpv'"
 watcher_script="bash -c 'PATH=$PREFIX/bin:$PATH $watcher_service_name'"
 controller_script="bash -c 'PATH=$PREFIX/bin:$PATH $controller_service_name $port'"
 
@@ -217,10 +218,6 @@ _init_service () {
     systemctl --user daemon-reload
 }
 
-_init_service "$viewer_service_name"
-_init_service "$watcher_service_name"
-_init_service "$controller_service_name"
-
 # setup nginx to handle rtmp
 if ! grep -q 'rtmp {' /etc/nginx/nginx.conf
 then
@@ -248,4 +245,12 @@ sudo systemctl enable nginx.service --no-pager
 sudo systemctl start nginx.service --no-pager
 sudo systemctl status -l nginx.service --no-pager
 
-init-always-on-display 315576000000 "$display" "$rotation"
+# display shouldn't necessarily have to be available to install
+if DISPLAY="$display" xrandr 2>/dev/null
+then
+    init-always-on-display 315576000000 "$display" "$rotation"
+fi
+
+_init_service "$viewer_service_name"
+_init_service "$watcher_service_name"
+_init_service "$controller_service_name"

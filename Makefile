@@ -85,7 +85,8 @@ pip: $(pip)  ## upgrade pip
 
 .PHONY: pip
 
-self_package := $(VENV_ROOT)/lib/python*/site-packages/__editable__.$(package_name)*.pth
+self_package_pattern := $(VENV_ROOT)/lib/python*/site-packages/__editable__.$(package_name)*.pth
+self_package := $(call safe-shell,echo $(self_package_pattern) | xargs -n1 | grep -v '\-bak' | tail -1)
 
 $(self_package): $(pip)
 	$(activate_venv) \
