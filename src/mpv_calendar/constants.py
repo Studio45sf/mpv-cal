@@ -15,8 +15,10 @@ class Constant:
     watcher_service = "mpv-calendar-watcher"
     live_stream_service = "nginx"
 
-    viewer_kill_filter = f"grep -v {watcher_service} | grep -w mpv"
-    watcher_kill_filter = f"grep -w {watcher_service}"
+    viewer_kill_filter = f"grep -v {watcher_service} | grep -v {controller_service} | grep -w mpv"
+    watcher_kill_filter = (
+        f"grep -v {controller_service} | grep -v {viewer_service} | grep -w {watcher_service}"
+    )
 
     default_image = Path.home() / "Pictures/default-display.jpg"
     front_end_debug = os.getenv("FRONT_END_DEBUG", "False").lower() in ("true", "1")
