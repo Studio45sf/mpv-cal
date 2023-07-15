@@ -27,8 +27,8 @@ class Constant:
     port = 8080
 
     # debug flags
-    default_image_fallback_instant = False
-    default_image_fallback_calendar = False
+    default_image_fallback_instant = True
+    default_image_fallback_calendar = True
     default_image_fallback_reset = False
 
 
