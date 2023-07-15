@@ -77,17 +77,19 @@ def _restart_service(service: str, user: bool, kill_filter: str) -> int:
     return result
 
 
-def _load_file_and_skip(item: str, last_playing_file: Path, default_image_fallback: bool) -> int:
+def _load_file_and_skip(
+    item: str, last_playing_file: Path, default_image_fallback: bool, queue: bool
+) -> int:
     """Construct and send the "loadfile" command over the socket."""
     if default_image_fallback:
         loadfile_command = (
-            f'echo \'{{ "command": ["loadfile", "{item}", "append-play"] }}\' '
+            f'echo \'{{ "command": ["loadfile", "{item}", "append-play"] }}'
+            f'\n{{ "command": ["loadfile", "{Constant.default_image}", "append-play"] }}\' '
             f"| socat - {Constant.mpv_socket}"
         )
     else:
         loadfile_command = (
-            f'echo \'{{ "command": ["loadfile", "{item}", "append-play"] }}'
-            f'\n{{ "command": ["loadfile", "{Constant.default_image}", "append-play"] }}\' '
+            f'echo \'{{ "command": ["loadfile", "{item}", "append-play"] }}\' '
             f"| socat - {Constant.mpv_socket}"
         )
 
@@ -101,7 +103,7 @@ def _load_file_and_skip(item: str, last_playing_file: Path, default_image_fallba
 
     result = 0
     result += _run(loadfile_command)
-    if result == 0:
+    if result == 0 and not queue:
         result += _run(playlist_next_command)
     return result
 
@@ -157,9 +159,10 @@ def _manage_service(command: str, service: str, user: bool, kill_filter: str) ->
             result += _stop_and_disable(service, user, kill_filter)
         elif command == "reset":
             result = _load_file_and_skip(
-                str(Constant.default_image),
-                Constant.last_playing_file,
-                False,
+                item=str(Constant.default_image),
+                last_playing_file=Constant.last_playing_file,
+                default_image_fallback=Constant.default_image_fallback_reset,
+                queue=False,
             )
         else:
             raise ValueError(f"Invalid command: {command}")
@@ -269,7 +272,19 @@ async def previous_playlist_item() -> dict[str, str]:
 
 @app.post("/add")
 async def add_playlist_item(request: Request) -> dict[str, str]:
-    """Add an item to the playlist."""
+    """Add an item to the playlist and play it immediately."""
+    result = await _add(request, queue=False)
+    return result
+
+
+@app.post("/queue")
+async def queue_playlist_item(request: Request) -> dict[str, str]:
+    """Queue an item to the playlist."""
+    result = await _add(request, queue=True)
+    return result
+
+
+async def _add(request: Request, queue: bool) -> dict[str, str]:
     form_data = await request.form()
 
     item = cast(str, form_data["item"])
@@ -281,9 +296,10 @@ async def add_playlist_item(request: Request) -> dict[str, str]:
             item = str(Path.home() / item.removesuffix("/"))
 
     result = _load_file_and_skip(
-        item,
-        Constant.last_playing_file,
-        not Constant.no_default_image_fallback,
+        item=item,
+        last_playing_file=Constant.last_playing_file,
+        default_image_fallback=Constant.default_image_fallback_instant,
+        queue=queue,
     )
 
     if result != 0:
@@ -300,6 +316,7 @@ __all__ = [
     "index",
     "next_playlist_item",
     "previous_playlist_item",
+    "queue_playlist_item",
     "reset",
     "restart",
     "restart_live_stream",

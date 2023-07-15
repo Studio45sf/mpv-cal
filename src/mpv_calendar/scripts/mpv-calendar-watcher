@@ -19,7 +19,7 @@ config="${XDG_CONFIG_HOME-$HOME/.config}"
 calendar_urls="$*"
 
 default_image="$(mpv-calendar-constant default_image)"
-no_default_image_fallback="$(mpv-calendar-constant no_default_image_fallback)"
+default_image_fallback_calendar="$(mpv-calendar-constant default_image_fallback_calendar)"
 
 mpv_calendars="$config/mpv/calendars"
 
@@ -184,7 +184,7 @@ _watch_for_calendar_events () {
             # trick to get a non-zero return code if the media can't be played
             if echo "$title" | grep -q ':' || test -f "$title"
             then
-                if test "$no_default_image_fallback" -eq 0
+                if test "$default_image_fallback_calendar" == True
                 then
                     echo -e '{ "command": ["loadfile", "'"$title"'", "append-play"] }'`
                     `'\n{ "command": ["loadfile", "'"$default_image"'", "append-play"] }'`

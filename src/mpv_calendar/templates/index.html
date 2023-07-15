@@ -217,16 +217,22 @@
             <button type="submit" class="button">Toggle</button>
         </form>
 
-        <form action="/next">
-            <button type="submit" class="button">Next</button>
-        </form>
         <form action="/previous">
             <button type="submit" class="button">Previous</button>
         </form>
 
+        <form action="/next">
+            <button type="submit" class="button">Next</button>
+        </form>
+
         <form action="/add" class="add post">
-            <input type="text" name="item" placeholder="Add URL or file path">
+            <input type="text" name="item" placeholder="Play URL or file">
             <button type="submit" class="button">Add</button>
+        </form>
+
+        <form action="/queue" class="add post">
+            <input type="text" name="item" placeholder="Queue URL or file">
+            <button type="submit" class="button">Queue</button>
         </form>
 
         <ul id="playlist">
