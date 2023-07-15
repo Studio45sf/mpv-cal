@@ -280,7 +280,7 @@ async def add_playlist_item(request: Request) -> dict[str, str]:
 @app.post("/queue")
 async def queue_playlist_item(request: Request) -> dict[str, str]:
     """Queue an item to the playlist."""
-    result = await _add(request, queue=False)
+    result = await _add(request, queue=True)
     return result
 
 
